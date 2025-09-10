@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <title>零錢計算機</title>
+  <style>
+    body { font-family: system-ui, "微軟正黑體", sans-serif; padding: 20px; }
+    h3 { margin-top: 0; }
+    table { border-collapse: collapse; margin-top: 10px; }
+    th, td { border: 1px solid #ccc; padding: 8px 12px; text-align: center; }
+    input { width: 80px; text-align: right; }
+    .total { margin-top: 15px; font-size: 1.2em; font-weight: bold; }
+    .btn { margin-top: 10px; padding: 6px 12px; font-size: 1rem; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h3>零錢計算機</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>幣值</th>
+        <th>數量</th>
+        <th>小計</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1 元</td>
+        <td><input type="number" id="n1" value="0" min="0"></td>
+        <td id="s1">0</td>
+      </tr>
+      <tr>
+        <td>5 元</td>
+        <td><input type="number" id="n5" value="0" min="0"></td>
+        <td id="s5">0</td>
+      </tr>
+      <tr>
+        <td>10 元</td>
+        <td><input type="number" id="n10" value="0" min="0"></td>
+        <td id="s10">0</td>
+      </tr>
+      <tr>
+        <td>100 元</td>
+        <td><input type="number" id="n100" value="0" min="0"></td>
+        <td id="s100">0</td>
+      </tr>
+      <tr>
+        <td>500 元</td>
+        <td><input type="number" id="n500" value="0" min="0"></td>
+        <td id="s500">0</td>
+      </tr>
+      <tr>
+        <td>1000 元</td>
+        <td><input type="number" id="n1000" value="0" min="0"></td>
+        <td id="s1000">0</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="total">總金額：<span id="total">0</span> 元</div>
+  <button class="btn" id="clearBtn">清空</button>
+
+  <script>
+    const coins = [1, 5, 10, 100, 500, 1000];
+
+    function compute() {
+      let total = 0;
+      coins.forEach(v => {
+        const num = parseInt(document.getElementById("n" + v).value) || 0;
+        const subtotal = num * v;
+        document.getElementById("s" + v).innerText = subtotal;
+        total += subtotal;
+      });
+      document.getElementById("total").innerText = total.toLocaleString();
+    }
+
+    function clearAll() {
+      coins.forEach(v => {
+        document.getElementById("n" + v).value = 0;
+        document.getElementById("s" + v).innerText = 0;
+      });
+      document.getElementById("total").innerText = 0;
+    }
+
+    coins.forEach(v => {
+      document.getElementById("n" + v).addEventListener("input", compute);
+    });
+
+    document.getElementById("clearBtn").addEventListener("click", clearAll);
+
+    // 初始計算
+    compute();
+  </script>
+</body>
+</html>

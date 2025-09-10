@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <title>金額分解（可增減欄位＋幣值總計）</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, "微軟正黑體", Arial, "微軟正黑體", sans-serif; padding: 20px; line-height: 1.6; }
+    h2, h3 { margin: 8px 0; }
+    .toolbar { display:flex; gap:8px; align-items:center; margin: 8px 0 16px; flex-wrap: wrap; }
+    .btn { padding: 6px 10px; border: 1px solid #aaa; border-radius: 8px; background: #f7f7f7; cursor: pointer; }
+    .btn:hover { background: #efefef; }
+    .grid { display: grid; grid-template-columns: repeat(5, minmax(240px, 1fr)); gap: 12px; }
+    .card { border: 1px solid #ddd; border-radius: 10px; padding: 12px; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+    .row { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom: 8px; }
+    input[type="number"] { width: 140px; padding: 6px 8px; text-align: right; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #e5e5e5; padding: 6px 8px; text-align: center; }
+    .sum { font-weight: 600; }
+    .note { color:#666; font-size:.9rem; }
+  </style>
+</head>
+<body>
+  <h2>金額分解（可增減欄位 → 自動統計各幣值數量）</h2>
+
+  <div class="toolbar">
+    <button class="btn" id="addCol">新增欄</button>
+    <button class="btn" id="removeCol">移除欄</button>
+    <label>欄數
+      <input type="number" id="countInput" value="5" min="1" max="50" style="width:80px; text-align:right;">
+    </label>
+    <button class="btn" id="applyCount">設定欄數</button>
+    <button class="btn" id="clearAll">全部清空</button>
+    <span class="note">說明：在任一欄輸入金額（如 4350），會自動分解為 1000/500/100/10/5/1 的數量。</span>
+  </div>
+
+  <div class="grid" id="cards"></div>
+
+  <h3>各幣值總計</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>幣值</th>
+        <th>總數量</th>
+        <th>總金額</th>
+      </tr>
+    </thead>
+    <tbody id="summaryBody"></tbody>
+    <tfoot>
+      <tr>
+        <th colspan="2">全體總金額</th>
+        <th id="grandTotal" class="sum">0</th>
+      </tr>
+    </tfoot>
+  </table>
+
+  <script>
+    const DENOMS = [1000, 500, 100, 10, 5, 1]; // 台幣面額（由大到小）
+    let PEOPLE = 5; // 目前欄數（可變）
+
+    const cards = document.getElementById('cards');
+    const summaryBody = document.getElementById('summaryBody');
+    const grandTotalEl = document.getElementById('grandTotal');
+
+    const addColBtn = document.getElementById('addCol');
+    const removeColBtn = document.getElementById('removeCol');
+    const countInput = document.getElementById('countInput');
+    const applyCountBtn = document.getElementById('applyCount');
+    const clearAllBtn = document.getElementById('clearAll');
+
+    const fmt = (n) => Number(n).toLocaleString('zh-TW');
+    const nz = (v) => (Number.isFinite(v) && v > 0 ? v : 0);
+
+    // 以貪婪法（由大到小）分解金額
+    function breakdown(amount) {
+      let remain = Math.floor(Math.max(0, amount));
+      const counts = {};
+      DENOMS.forEach(d => {
+        const c = Math.floor(remain / d);
+        counts[d] = c;
+        remain -= c * d;
+      });
+      return counts;
+    }
+
+    function cardHTML(i) {
+      return `
+        <div class="card" id="p${i}">
+          <div class="row">
+            <strong>第 ${i} 欄</strong>
+            <button class="btn" data-clear="p${i}">清空此欄</button>
+          </div>
+          <div class="row">
+            <label for="p${i}_amt">輸入金額</label>
+            <input type="number" id="p${i}_amt" min="0" step="1" placeholder="例如 4350" />
+          </div>
+          <table>
+            <thead>
+              <tr><th>幣值</th><th>數量</th></tr>
+            </thead>
+            <tbody>
+              ${DENOMS.map(d => `
+                <tr>
+                  <td>${d} 元</td>
+                  <td id="p${i}_c${d}">0</td>
+                </tr>
+              `).join('')}
+            </tbody>
+            <tfoot>
+              <tr>
+                <th>小計金額</th>
+                <th id="p${i}_sum" class="sum">0</th>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      `;
+    }
+
+    function buildSummaryTable() {
+      summaryBody.innerHTML = DENOMS.map(d => `
+        <tr>
+          <td>${d} 元</td>
+          <td id="sum_cnt_${d}">0</td>
+          <td id="sum_amt_${d}">0</td>
+        </tr>
+      `).join('');
+    }
+
+    function bindEventsForCards() {
+      // 綁定每欄的輸入和清空
+      for (let i = 1; i <= PEOPLE; i++) {
+        const amtEl = document.getElementById(`p${i}_amt`);
+        if (amtEl) amtEl.addEventListener('input', computeAll);
+      }
+      document.querySelectorAll('[data-clear]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const pid = btn.getAttribute('data-clear');
+          const inp = document.getElementById(`${pid}_amt`);
+          if (inp) inp.value = '';
+          DENOMS.forEach(d => {
+            const cell = document.getElementById(`${pid}_c${d}`);
+            if (cell) cell.textContent = '0';
+          });
+          const sumEl = document.getElementById(`${pid}_sum`);
+          if (sumEl) sumEl.textContent = '0';
+          computeAll();
+        });
+      });
+    }
+
+    function renderCards() {
+      cards.innerHTML = '';
+      for (let i = 1; i <= PEOPLE; i++) {
+        cards.insertAdjacentHTML('beforeend', cardHTML(i));
+      }
+      bindEventsForCards();
+      computeAll();
+    }
+
+    function computeAll() {
+      // 各幣值總數
+      const totals = {};
+      DENOMS.forEach(d => totals[d] = 0);
+      let grandTotal = 0;
+
+      for (let i = 1; i <= PEOPLE; i++) {
+        const amtEl = document.getElementById(`p${i}_amt`);
+        if (!amtEl) continue;
+        const amount = nz(parseInt(amtEl.value, 10));
+        const counts = breakdown(amount);
+
+        let personSum = 0;
+        DENOMS.forEach(d => {
+          const c = counts[d];
+          const cell = document.getElementById(`p${i}_c${d}`);
+          if (cell) cell.textContent = fmt(c);
+          totals[d] += c;
+          personSum += c * d;
+        });
+        const sumEl = document.getElementById(`p${i}_sum`);
+        if (sumEl) sumEl.textContent = fmt(personSum);
+        grandTotal += personSum;
+      }
+
+      // 更新總表
+      DENOMS.forEach(d => {
+        const cntEl = document.getElementById(`sum_cnt_${d}`);
+        const amtEl = document.getElementById(`sum_amt_${d}`);
+        if (cntEl) cntEl.textContent = fmt(totals[d]);
+        if (amtEl) amtEl.textContent = fmt(totals[d] * d);
+      });
+      grandTotalEl.textContent = fmt(grandTotal);
+    }
+
+    // 事件：增減與設定欄位數
+    addColBtn.addEventListener('click', () => {
+      PEOPLE++;
+      countInput.value = PEOPLE;
+      renderCards();
+    });
+    removeColBtn.addEventListener('click', () => {
+      if (PEOPLE > 1) {
+        PEOPLE--;
+        countInput.value = PEOPLE;
+        renderCards();
+      }
+    });
+    applyCountBtn.addEventListener('click', () => {
+      let n = parseInt(countInput.value, 10);
+      if (!Number.isFinite(n) || n < 1) n = 1;
+      if (n > 50) n = 50;
+      PEOPLE = n;
+      countInput.value = PEOPLE;
+      renderCards();
+    });
+
+    // 全部清空
+    clearAllBtn.addEventListener('click', () => {
+      for (let i = 1; i <= PEOPLE; i++) {
+        const amtEl = document.getElementById(`p${i}_amt`);
+        if (amtEl) amtEl.value = '';
+        DENOMS.forEach(d => {
+          const cell = document.getElementById(`p${i}_c${d}`);
+          if (cell) cell.textContent = '0';
+        });
+        const sumEl = document.getElementById(`p${i}_sum`);
+        if (sumEl) sumEl.textContent = '0';
+      }
+      computeAll();
+    });
+
+    // 初始渲染
+    buildSummaryTable();
+    renderCards();
+  </script>
+</body>
+</html>
