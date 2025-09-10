@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>單堂鐘點費計算（雙向＋總鐘點｜行動版）</title>
+  <style>
+    :root{ --underline:#333; --muted:#666; --bg:#fff; }
+    body{font-family:system-ui,-apple-system,"Noto Sans TC","微軟正黑體",Segoe UI,Roboto,Arial,sans-serif;line-height:1.8;margin:0;background:var(--bg)}
+    .wrap{max-width:780px;margin:0 auto;padding:24px 20px}
+    h3{margin:0 0 12px}
+    .note{color:var(--muted);font-size:.95rem;margin-top:8px}
+    .btn{margin-top:14px;padding:8px 12px;border:1px solid #aaa;border-radius:10px;background:#f7f7f7;cursor:pointer}
+    .btn:hover{background:#efefef}
+    .warn{color:#c62828;margin-top:8px;font-weight:600}
+
+    .formula{display:grid;grid-template-columns:auto 1fr;row-gap:12px;column-gap:10px;align-items:center}
+    .label{white-space:nowrap}
+    input.blank{
+      width:100%; min-width:10ch;
+      padding:2px 6px 4px; border:0; border-bottom:2px solid var(--underline);
+      outline:none; text-align:right; font:inherit; background:#fff;
+    }
+    input.blank[readonly]{background:#fafafa}
+    input.blank:focus{background:#fffceb}
+    .unit{margin-left:4px}
+    .resultBox{display:flex;align-items:center;gap:6px}
+    .resultVal{
+      display:inline-block; min-width:18ch; text-align:right; border-bottom:2px solid var(--underline); padding:2px 6px;
+      font-weight:600;
+    }
+
+    @media (min-width:760px){
+      #line1.formula{
+        grid-template-columns:auto minmax(12ch,16ch) auto auto minmax(10ch,14ch) auto auto minmax(10ch,14ch) auto auto minmax(18ch,22ch) auto;
+      }
+      #line2.formula{
+        grid-template-columns:auto minmax(18ch,22ch) auto auto minmax(10ch,14ch) auto auto minmax(18ch,22ch) auto;
+      }
+      .label,.unit{white-space:nowrap}
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h3>單堂鐘點費計算（可雙向輸入）</h3>
+
+    <!-- 第1行 -->
+    <div id="line1" class="formula" aria-live="polite">
+      <span class="label">課程費</span>
+      <input id="fee" class="blank" type="number" min="0" step="0.01" inputmode="decimal" placeholder="課程費">
+
+      <span class="label">× 0.8 ÷ 堂數</span>
+      <input id="classes" class="blank" type="number" min="0" step="0.01" inputmode="decimal" placeholder="堂數">
+
+      <span class="label">× 人數</span>
+      <input id="people" class="blank" type="number" min="0" step="1" inputmode="numeric" placeholder="人數">
+
+      <span class="label">＝ 單堂鐘點費</span>
+      <span class="resultBox">
+        <input id="hourly" class="blank" type="number" min="0" step="0.01" inputmode="decimal" placeholder="自動計算或輸入">
+        <span class="unit">元</span>
+      </span>
+    </div>
+
+    <!-- 第2行（加大間距） -->
+    <div id="line2" class="formula" style="margin-top:28px;">
+      <span class="label">單堂鐘點</span>
+      <input id="hourly_mirror" class="blank" type="number" readonly placeholder="自動帶入">
+
+      <span class="label">× 堂數</span>
+      <input id="classes_mirror" class="blank" type="number" readonly placeholder="自動帶入">
+
+      <span class="label">＝ 總鐘點</span>
+      <span class="resultBox">
+        <span id="totalResult" class="resultVal">—</span>
+        <span class="unit">元</span>
+      </span>
+    </div>
+
+    <button id="clearBtn" class="btn" type="button">清除</button>
+    <div id="warn" class="warn"></div>
+    <div class="note">
+      提示：輸入前面三欄會算出鐘點費；直接輸入鐘點費也能反推課程費。<br>
+      單堂鐘點費不可超過 4000 元 / 90 分鐘
+    </div>
+  </div>
+
+  <script>
+    const feeEl = document.getElementById('fee');
+    const classesEl = document.getElementById('classes');
+    const peopleEl = document.getElementById('people');
+    const hourlyEl = document.getElementById('hourly');
+
+    const hourlyMirrorEl = document.getElementById('hourly_mirror');
+    const classesMirrorEl = document.getElementById('classes_mirror');
+    const totalResultEl = document.getElementById('totalResult');
+
+    const warnEl = document.getElementById('warn');
+    const clearBtn = document.getElementById('clearBtn');
+
+    let lock = false;
+
+    const n = (el, def=0) => {
+      const v = parseFloat(el.value);
+      return Number.isFinite(v) ? v : def;
+    };
+    const toFixed2 = x => (Math.round(x * 100) / 100).toFixed(2); // 給 input 用（不能有逗號）
+    const fmt0 = x => Number(x).toLocaleString('zh-TW');          // 顯示在文字（可有逗號）
+
+    function checkLimit(hourly){
+      if(hourly > 4000){
+        warnEl.textContent = `⚠️ 單堂鐘點費 ${toFixed2(hourly)} 元，已超過上限 4000 元 / 90 分鐘！`;
+      }else{
+        warnEl.textContent = '';
+      }
+    }
+
+    function updateLine2(){
+      const hourly = n(hourlyEl, NaN);
+      const classes = n(classesEl, NaN);
+
+      hourlyMirrorEl.value = Number.isFinite(hourly) ? toFixed2(hourly) : '';
+      classesMirrorEl.value = Number.isFinite(classes) ? toFixed2(classes) : '';
+
+      if(Number.isFinite(hourly) && Number.isFinite(classes) && classes >= 0){
+        const total = hourly * classes;
+        totalResultEl.textContent = fmt0(Math.round(total)); // 整數呈現
+      }else{
+        totalResultEl.textContent = '—';
+      }
+    }
+
+    function computeFromFee(){
+      if(lock) return; lock = true;
+      const fee = n(feeEl, 0);
+      const classes = n(classesEl, NaN);
+      const people = n(peopleEl, 0);
+
+      if(!Number.isFinite(classes) || classes <= 0){
+        hourlyEl.value = '';
+        if(classesEl.value !== '') warnEl.textContent = '堂數需要大於 0。';
+        lock = false; updateLine2(); return;
+      }
+
+      const hourly = fee * 0.8 / classes * people;
+      if(Number.isFinite(hourly)){
+        hourlyEl.value = toFixed2(hourly);
+        checkLimit(hourly);
+      }else{
+        hourlyEl.value = '';
+        warnEl.textContent = '';
+      }
+      lock = false; updateLine2();
+    }
+
+    function computeFromHourly(){
+      if(lock) return; lock = true;
+      const hourly = n(hourlyEl, 0);
+      const classes = n(classesEl, NaN);
+      const people = n(peopleEl, 0);
+
+      if(!Number.isFinite(classes) || classes <= 0 || people <= 0){
+        feeEl.value = '';
+        if(classesEl.value !== '' || peopleEl.value !== '') warnEl.textContent = '堂數與人數需大於 0 才能反推課程費。';
+        lock = false; updateLine2(); return;
+      }
+
+      const fee = (hourly / people) * classes / 0.8;
+      if(Number.isFinite(fee)){
+        feeEl.value = toFixed2(fee);
+        checkLimit(hourly);
+      }else{
+        feeEl.value = '';
+        warnEl.textContent = '';
+      }
+      lock = false; updateLine2();
+    }
+
+    // 監聽 input + change（某些瀏覽器在數字箭頭點擊只觸發 change）
+    const bind = (el, fn) => { el.addEventListener('input', fn); el.addEventListener('change', fn); };
+    [feeEl, classesEl, peopleEl].forEach(el => bind(el, computeFromFee));
+    bind(hourlyEl, computeFromHourly);
+
+    clearBtn.addEventListener('click', ()=>{
+      feeEl.value = classesEl.value = peopleEl.value = hourlyEl.value = '';
+      warnEl.textContent = '';
+      updateLine2();
+      feeEl.focus();
+    });
+
+    // 進頁先算一次（如果欄位已經有值的話）
+    computeFromFee();
+  </script>
+</body>
+</html>
